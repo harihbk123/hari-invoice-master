@@ -1,0 +1,2 @@
+-- Invoice Manager Database Schema
+-- Copy the complete schema from the artifact
