@@ -1,133 +1,179 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useStore } from '@/store';
-import {
-  LayoutDashboard,
-  FileText,
-  Users,
-  DollarSign,
-  BarChart3,
-  Settings,
-  LogOut,
+import { Badge } from '@/components/ui/badge';
+import { 
+  LayoutDashboard, 
+  FileText, 
+  Users, 
+  Receipt, 
+  BarChart3, 
+  Settings, 
   ChevronLeft,
-  Receipt,
+  ChevronRight,
+  Menu,
+  X
 } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useRouter } from 'next/navigation';
 
 interface SidebarProps {
-  isOpen: boolean;
-  onClose: () => void;
-  currentPath: string;
+  className?: string;
 }
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Invoices', href: '/invoices', icon: FileText },
-  { name: 'Clients', href: '/clients', icon: Users },
-  { name: 'Expenses', href: '/expenses', icon: Receipt },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Settings', href: '/settings', icon: Settings },
+const menuItems = [
+  {
+    title: 'Dashboard',
+    href: '/dashboard',
+    icon: LayoutDashboard,
+  },
+  {
+    title: 'Invoices',
+    href: '/dashboard/invoices',
+    icon: FileText,
+    badge: 'new',
+  },
+  {
+    title: 'Clients',
+    href: '/dashboard/clients',
+    icon: Users,
+  },
+  {
+    title: 'Expenses',
+    href: '/dashboard/expenses',
+    icon: Receipt,
+  },
+  {
+    title: 'Analytics',
+    href: '/dashboard/analytics',
+    icon: BarChart3,
+  },
+  {
+    title: 'Settings',
+    href: '/dashboard/settings',
+    icon: Settings,
+  },
 ];
 
-export function Sidebar({ isOpen, onClose, currentPath }: SidebarProps) {
+export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, reset } = useStore();
-  const supabase = createClientComponentClient();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    reset(); // Clear the store
-    router.push('/auth/login');
-  };
+  const toggleCollapsed = () => setIsCollapsed(!isCollapsed);
+  const toggleMobile = () => setIsMobileOpen(!isMobileOpen);
 
   return (
-    <aside
-      className={cn(
-        'fixed inset-y-0 left-0 z-50 w-64 transform bg-card transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0',
-        isOpen ? 'translate-x-0' : '-translate-x-full'
+    <>
+      {/* Mobile menu button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="md:hidden fixed top-4 left-4 z-50"
+        onClick={toggleMobile}
+      >
+        {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      </Button>
+
+      {/* Mobile backdrop */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={toggleMobile}
+        />
       )}
-    >
-      <div className="flex h-full flex-col">
-        {/* Header */}
-        <div className="flex h-16 items-center justify-between border-b px-6">
-          <div className="flex items-center gap-2">
-            <DollarSign className="h-6 w-6 text-primary" />
-            <div>
-              <h2 className="text-lg font-semibold">Invoice Manager</h2>
-              <p className="text-xs text-muted-foreground">Hariprasad S.</p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={onClose}
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
-        </div>
 
-        {/* Navigation */}
-        <ScrollArea className="flex-1 px-3 py-4">
-          <nav className="space-y-1">
-            {navigation.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  )}
-                  onClick={() => {
-                    if (window.innerWidth < 1024) {
-                      onClose();
-                    }
-                  }}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.name}
-                </Link>
-              );
-            })}
-          </nav>
-        </ScrollArea>
-
-        {/* User section */}
-        <div className="border-t p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                <span className="text-xs font-semibold text-primary">
-                  {user?.name?.charAt(0).toUpperCase() || 'U'}
-                </span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">{user?.name || 'User'}</span>
-                <span className="text-xs text-muted-foreground">{user?.email}</span>
-              </div>
-            </div>
+      {/* Sidebar */}
+      <div
+        className={cn(
+          'fixed left-0 top-0 z-40 h-full bg-background border-r transition-all duration-300',
+          isCollapsed ? 'w-16' : 'w-64',
+          'md:relative md:translate-x-0',
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+          className
+        )}
+      >
+        <div className="flex h-full flex-col">
+          {/* Header */}
+          <div className="flex h-16 items-center border-b px-4">
+            {!isCollapsed && (
+              <Link href="/dashboard" className="flex items-center space-x-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <span className="text-lg font-semibold">Invoice Manager</span>
+              </Link>
+            )}
+            
+            {/* Collapse toggle - Desktop only */}
             <Button
               variant="ghost"
               size="icon"
-              onClick={handleSignOut}
-              title="Sign out"
+              className={cn(
+                'hidden md:flex ml-auto',
+                isCollapsed && 'mx-auto'
+              )}
+              onClick={toggleCollapsed}
             >
-              <LogOut className="h-4 w-4" />
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronLeft className="h-4 w-4" />
+              )}
             </Button>
+          </div>
+
+          {/* Navigation */}
+          <ScrollArea className="flex-1 px-3 py-4">
+            <nav className="space-y-2">
+              {menuItems.map((item) => {
+                const isActive = pathname === item.href || 
+                  (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                
+                return (
+                  <Link key={item.href} href={item.href} onClick={() => setIsMobileOpen(false)}>
+                    <div
+                      className={cn(
+                        'flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                        'hover:bg-accent hover:text-accent-foreground',
+                        isActive 
+                          ? 'bg-accent text-accent-foreground' 
+                          : 'text-muted-foreground',
+                        isCollapsed ? 'justify-center' : 'justify-start'
+                      )}
+                    >
+                      <item.icon className={cn('h-5 w-5', !isCollapsed && 'mr-3')} />
+                      {!isCollapsed && (
+                        <>
+                          <span className="flex-1">{item.title}</span>
+                          {item.badge && (
+                            <Badge variant="secondary" className="ml-auto">
+                              {item.badge}
+                            </Badge>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </nav>
+          </ScrollArea>
+
+          {/* Footer */}
+          <div className="border-t p-4">
+            {!isCollapsed && (
+              <div className="text-xs text-muted-foreground">
+                <p className="font-medium">Invoice Manager v2.0</p>
+                <p>Built with Next.js & Supabase</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </aside>
+    </>
   );
 }
