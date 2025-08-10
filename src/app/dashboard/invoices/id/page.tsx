@@ -1,312 +1,437 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { useInvoiceStore } from '@/lib/store';
-import { getInvoice, updateInvoiceStatus } from '@/lib/supabase/queries';
-import { generateInvoicePDF } from '@/features/invoices/lib/pdf-generator';
+import { useInvoice, useDeleteInvoice, useChangeInvoiceStatus } from '@/features/invoices/hooks/use-invoices';
+import { downloadInvoicePDF } from '@/features/invoices/lib/pdf-generator';
+import { useSettings } from '@/features/settings/hooks/use-settings';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { InvoiceStatusBadge } from '@/features/invoices/components/invoice-status-badge';
-import { Edit, Download, Send, Printer, ArrowLeft, Trash2 } from 'lucide-react';
-import type { InvoiceStatus } from '@/types';
+import { 
+  ArrowLeft, Edit, Trash2, Download, Mail, 
+  Eye, Calendar, DollarSign, User, FileText 
+} from 'lucide-react';
 
-export default function InvoiceViewPage() {
+export default function InvoiceDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
   const invoiceId = params.id as string;
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
-  const { deleteInvoice } = useInvoiceStore();
-
-  const { data: invoice, isLoading, error, refetch } = useQuery({
-    queryKey: ['invoice', invoiceId],
-    queryFn: () => getInvoice(invoiceId),
-    enabled: !!invoiceId,
-  });
-
-  const handleStatusChange = async (newStatus: InvoiceStatus) => {
-    if (!invoice || invoice.status === newStatus) return;
-
-    setIsUpdatingStatus(true);
-    try {
-      await updateInvoiceStatus(invoiceId, newStatus);
-      await refetch();
-      toast({
-        title: 'Status Updated',
-        description: `Invoice status changed to ${newStatus}`,
-      });
-    } catch (error) {
-      console.error('Error updating status:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to update invoice status',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsUpdatingStatus(false);
-    }
-  };
-
-  const handleDownloadPDF = () => {
-    if (!invoice) return;
-    
-    try {
-      generateInvoicePDF(invoice);
-      toast({
-        title: 'PDF Downloaded',
-        description: 'Invoice PDF has been downloaded successfully',
-      });
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to generate PDF',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleSendEmail = () => {
-    // TODO: Implement email functionality
-    toast({
-      title: 'Coming Soon',
-      description: 'Email functionality will be available soon',
-    });
-  };
+  
+  const { invoice, isLoading, error } = useInvoice(invoiceId);
+  const deleteInvoice = useDeleteInvoice();
+  const changeStatus = useChangeInvoiceStatus();
+  const { settings } = useSettings();
+  
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isChangingStatus, setIsChangingStatus] = useState(false);
+  const [newStatus, setNewStatus] = useState('');
 
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
       return;
     }
 
-    setIsDeletingInvoice(true);
+    setIsDeleting(true);
     try {
-      await deleteInvoice(invoiceId);
+      await deleteInvoice.mutateAsync(invoiceId);
       toast({
         title: 'Invoice Deleted',
-        description: 'Invoice has been deleted successfully',
+        description: 'Invoice has been deleted successfully.',
       });
-      router.push('/invoices');
+      router.push('/dashboard/invoices');
     } catch (error) {
-      console.error('Error deleting invoice:', error);
       toast({
         title: 'Error',
-        description: 'Failed to delete invoice',
+        description: 'Failed to delete invoice.',
         variant: 'destructive',
       });
     } finally {
-      setIsDeletingInvoice(false);
+      setIsDeleting(false);
+    }
+  };
+
+  const handleStatusChange = async () => {
+    if (!newStatus) return;
+
+    setIsChangingStatus(true);
+    try {
+      await changeStatus.mutateAsync({ id: invoiceId, status: newStatus as any });
+      toast({
+        title: 'Status Updated',
+        description: 'Invoice status has been updated successfully.',
+      });
+      setNewStatus('');
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update invoice status.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsChangingStatus(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!invoice || !settings) return;
+    
+    try {
+      await downloadInvoicePDF(invoice, settings);
+      toast({
+        title: 'PDF Downloaded',
+        description: 'Invoice PDF has been downloaded successfully.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to download PDF.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const getStatusVariant = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'paid': return 'paid';
+      case 'pending': return 'pending';
+      case 'overdue': return 'overdue';
+      case 'cancelled': return 'cancelled';
+      default: return 'draft';
     }
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-muted-foreground">Loading invoice...</div>
+      <div className="container mx-auto py-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+          <div className="space-y-4">
+            <div className="h-64 bg-gray-200 rounded"></div>
+            <div className="h-32 bg-gray-200 rounded"></div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error || !invoice) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <div className="text-destructive">Invoice not found</div>
-        <Button onClick={() => router.push('/invoices')} variant="outline">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Invoices
-        </Button>
+      <div className="container mx-auto py-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600">Invoice Not Found</h1>
+          <p className="text-gray-600 mt-2">The invoice you're looking for doesn't exist.</p>
+          <Link href="/dashboard/invoices">
+            <Button className="mt-4">Back to Invoices</Button>
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const subtotal = invoice.items.reduce((sum, item) => sum + item.amount, 0);
-  const tax = subtotal * (invoice.tax_rate / 100);
-  const total = subtotal + tax;
-
   return (
-    <div className="space-y-6">
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <Button
-            onClick={() => router.push('/invoices')}
-            variant="ghost"
-            size="sm"
-            className="mb-2"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Invoices
-          </Button>
-          <h1 className="text-3xl font-bold">Invoice {invoice.invoice_number}</h1>
+    <div className="container mx-auto py-6 max-w-4xl">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Link href="/dashboard/invoices">
+            <Button variant="outline" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold">{invoice.number}</h1>
+            <p className="text-gray-600">Invoice Details</p>
+          </div>
         </div>
-        
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={() => router.push(`/invoices/${invoiceId}/edit`)}
-            variant="outline"
-            size="sm"
-          >
-            <Edit className="mr-2 h-4 w-4" />
-            Edit
-          </Button>
-          <Button onClick={handleDownloadPDF} variant="outline" size="sm">
-            <Download className="mr-2 h-4 w-4" />
+
+        <div className="flex items-center gap-2">
+          <Badge variant={getStatusVariant(invoice.status)}>
+            {invoice.status}
+          </Badge>
+          
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                Change Status
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Change Invoice Status</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Select onValueChange={setNewStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select new status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Draft">Draft</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Paid">Paid</SelectItem>
+                    <SelectItem value="Overdue">Overdue</SelectItem>
+                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setNewStatus('')}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleStatusChange} 
+                    disabled={!newStatus || isChangingStatus}
+                  >
+                    {isChangingStatus ? 'Updating...' : 'Update Status'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Button onClick={handleDownloadPDF} size="sm">
+            <Download className="h-4 w-4 mr-2" />
             Download PDF
           </Button>
-          <Button onClick={handlePrint} variant="outline" size="sm">
-            <Printer className="mr-2 h-4 w-4" />
-            Print
-          </Button>
-          <Button onClick={handleSendEmail} variant="outline" size="sm">
-            <Send className="mr-2 h-4 w-4" />
-            Send Email
-          </Button>
-          <Button
+
+          <Link href={`/dashboard/invoices/${invoice.id}/edit`}>
+            <Button variant="outline" size="sm">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          </Link>
+
+          <Button 
+            variant="destructive" 
+            size="sm" 
             onClick={handleDelete}
-            variant="destructive"
-            size="sm"
-            disabled={isDeletingInvoice}
+            disabled={isDeleting}
           >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
+            <Trash2 className="h-4 w-4 mr-2" />
+            {isDeleting ? 'Deleting...' : 'Delete'}
           </Button>
         </div>
       </div>
 
-      {/* Invoice Details */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Invoice Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Invoice Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Status</span>
-              <div className="flex items-center gap-2">
-                <InvoiceStatusBadge status={invoice.status} />
-                <select
-                  value={invoice.status}
-                  onChange={(e) => handleStatusChange(e.target.value as InvoiceStatus)}
-                  disabled={isUpdatingStatus}
-                  className="text-xs border rounded px-2 py-1"
-                >
-                  <option value="Draft">Draft</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Paid">Paid</option>
-                  <option value="Overdue">Overdue</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Content */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Invoice Details */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Invoice Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-600">Invoice Number</p>
+                  <p className="font-semibold">{invoice.number}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Status</p>
+                  <Badge variant={getStatusVariant(invoice.status)}>
+                    {invoice.status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Issue Date</p>
+                  <p className="font-semibold">{formatDate(invoice.date_issued)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Due Date</p>
+                  <p className="font-semibold">{formatDate(invoice.due_date)}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Issue Date</span>
-              <span>{formatDate(invoice.date_issued)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Due Date</span>
-              <span>{formatDate(invoice.due_date)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Payment Terms</span>
-              <span>{invoice.payment_terms || 'Net 30'}</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        {/* Client Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Client Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <div className="font-medium">{invoice.client?.name}</div>
-              {invoice.client?.email && (
-                <div className="text-sm text-muted-foreground">{invoice.client.email}</div>
-              )}
-              {invoice.client?.phone && (
-                <div className="text-sm text-muted-foreground">{invoice.client.phone}</div>
-              )}
-            </div>
-            {invoice.client?.address && (
-              <div className="text-sm text-muted-foreground whitespace-pre-line">
-                {invoice.client.address}
+          {/* Client Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Client Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div>
+                  <p className="text-sm text-gray-600">Client Name</p>
+                  <p className="font-semibold">{invoice.client_name}</p>
+                </div>
+                {invoice.client_email && (
+                  <div>
+                    <p className="text-sm text-gray-600">Email</p>
+                    <p className="font-semibold">{invoice.client_email}</p>
+                  </div>
+                )}
+                {invoice.client_address && (
+                  <div>
+                    <p className="text-sm text-gray-600">Address</p>
+                    <p className="font-semibold whitespace-pre-line">{invoice.client_address}</p>
+                  </div>
+                )}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* Line Items */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Line Items</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Quantity</TableHead>
+                    <TableHead className="text-right">Rate</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invoice.items?.map((item, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{item.description}</TableCell>
+                      <TableCell className="text-right">{item.quantity}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(item.rate)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Notes and Terms */}
+          {(invoice.notes || invoice.terms) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Additional Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {invoice.notes && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 mb-2">Notes</p>
+                    <p className="text-sm whitespace-pre-line">{invoice.notes}</p>
+                  </div>
+                )}
+                {invoice.terms && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-600 mb-2">Terms & Conditions</p>
+                    <p className="text-sm whitespace-pre-line">{invoice.terms}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Financial Summary */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                Financial Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="font-semibold">{formatCurrency(invoice.subtotal)}</span>
+                </div>
+                {invoice.tax_amount && invoice.tax_amount > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Tax</span>
+                    <span className="font-semibold">{formatCurrency(invoice.tax_amount)}</span>
+                  </div>
+                )}
+                <div className="border-t pt-3">
+                  <div className="flex justify-between">
+                    <span className="text-lg font-semibold">Total</span>
+                    <span className="text-lg font-bold">{formatCurrency(invoice.total)}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button 
+                className="w-full" 
+                variant="outline"
+                onClick={handleDownloadPDF}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download PDF
+              </Button>
+              
+              <Button className="w-full" variant="outline">
+                <Mail className="h-4 w-4 mr-2" />
+                Send to Client
+              </Button>
+              
+              <Link href={`/dashboard/invoices/${invoice.id}/edit`} className="block">
+                <Button className="w-full" variant="outline">
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Invoice
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* Invoice Timeline */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                Timeline
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Created</span>
+                  <span>{formatDate(invoice.created_at)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Issue Date</span>
+                  <span>{formatDate(invoice.date_issued)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Due Date</span>
+                  <span>{formatDate(invoice.due_date)}</span>
+                </div>
+                {invoice.paid_at && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Paid Date</span>
+                    <span>{formatDate(invoice.paid_at)}</span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-
-      {/* Line Items */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Line Items</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Quantity</TableHead>
-                <TableHead className="text-right">Rate</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoice.items.map((item, index) => (
-                <TableRow key={index}>
-                  <TableCell>{item.description}</TableCell>
-                  <TableCell className="text-right">{item.quantity}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(item.rate)}</TableCell>
-                  <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {/* Totals */}
-          <div className="mt-6 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
-            </div>
-            {invoice.tax_rate > 0 && (
-              <div className="flex justify-between text-sm">
-                <span>Tax ({invoice.tax_rate}%)</span>
-                <span>{formatCurrency(tax)}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-lg font-semibold pt-2 border-t">
-              <span>Total</span>
-              <span>{formatCurrency(total)}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Notes */}
-      {invoice.notes && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Notes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground whitespace-pre-line">{invoice.notes}</p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
