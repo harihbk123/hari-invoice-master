@@ -1,79 +1,53 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useStore } from '@/store';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MetricsCards } from '@/features/dashboard/components/metrics-cards';
-import { RevenueChart } from '@/features/dashboard/components/revenue-chart';
-import { ClientDistributionChart } from '@/features/dashboard/components/client-distribution-chart';
-import { RecentInvoices } from '@/features/dashboard/components/recent-invoices';
-import { ExpenseOverview } from '@/features/dashboard/components/expense-overview';
-import { Plus, TrendingUp, TrendingDown } from 'lucide-react';
+import { formatCurrency, formatDate } from '@/lib/utils';
+import { 
+  DollarSign, 
+  FileText, 
+  Users, 
+  TrendingUp, 
+  Plus,
+  AlertTriangle,
+  Receipt
+} from 'lucide-react';
 import Link from 'next/link';
-import { formatCurrency } from '@/lib/utils';
 
 export default function DashboardPage() {
-  const { invoices, clients, expenses, settings } = useStore();
-  const [metrics, setMetrics] = useState({
-    totalEarnings: 0,
-    totalExpenses: 0,
-    currentBalance: 0,
-    totalClients: 0,
-    totalInvoices: 0,
-    pendingInvoices: 0,
-    averageInvoice: 0,
-    monthlyGrowth: 0,
-  });
+  const {
+    invoices,
+    clients,
+    expenses,
+    settings,
+    getTotalEarnings,
+    getTotalExpenses,
+    getCurrentBalance,
+    getRecentInvoices,
+    getRecentExpenses,
+    getOverdueInvoices,
+  } = useStore();
 
-  useEffect(() => {
-    // Calculate metrics
-    const paidInvoices = invoices.filter(inv => inv.status === 'Paid');
-    const totalEarnings = paidInvoices.reduce((sum, inv) => sum + inv.amount, 0);
-    const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-    const currentBalance = totalEarnings - totalExpenses;
-    const pendingInvoices = invoices.filter(inv => inv.status === 'Pending').length;
-    const averageInvoice = paidInvoices.length > 0 ? totalEarnings / paidInvoices.length : 0;
+  const totalEarnings = getTotalEarnings();
+  const totalExpenses = getTotalExpenses();
+  const currentBalance = getCurrentBalance();
+  const recentInvoices = getRecentInvoices(5);
+  const recentExpenses = getRecentExpenses(5);
+  const overdueInvoices = getOverdueInvoices();
 
-    // Calculate monthly growth
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
-    const currentMonthEarnings = paidInvoices
-      .filter(inv => {
-        const invDate = new Date(inv.date_issued);
-        return invDate.getMonth() === currentMonth && invDate.getFullYear() === currentYear;
-      })
-      .reduce((sum, inv) => sum + inv.amount, 0);
+  const currency = settings?.currency || 'INR';
 
-    const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-    const lastMonthEarnings = paidInvoices
-      .filter(inv => {
-        const invDate = new Date(inv.date_issued);
-        return invDate.getMonth() === lastMonth && invDate.getFullYear() === lastMonthYear;
-      })
-      .reduce((sum, inv) => sum + inv.amount, 0);
-
-    const monthlyGrowth = lastMonthEarnings > 0 
-      ? ((currentMonthEarnings - lastMonthEarnings) / lastMonthEarnings) * 100 
-      : 0;
-
-    setMetrics({
-      totalEarnings,
-      totalExpenses,
-      currentBalance,
-      totalClients: clients.length,
-      totalInvoices: invoices.length,
-      pendingInvoices,
-      averageInvoice,
-      monthlyGrowth,
-    });
-  }, [invoices, clients, expenses]);
+  // Calculate some stats
+  const paidInvoices = invoices.filter(inv => inv.status === 'Paid').length;
+  const pendingInvoices = invoices.filter(inv => inv.status === 'Pending').length;
+  const draftInvoices = invoices.filter(inv => inv.status === 'Draft').length;
 
   return (
-    <div className="space-y-8">
-      {/* Page Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
@@ -81,32 +55,56 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/invoices/new">
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Invoice
-            </Button>
-          </Link>
-          <Link href="/expenses/new">
-            <Button variant="outline">
-              <Plus className="mr-2 h-4 w-4" />
+          <Button asChild>
+            <Link href="/invoices/create">
+              <Plus className="h-4 w-4 mr-2" />
+              New Invoice
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/expenses/create">
+              <Receipt className="h-4 w-4 mr-2" />
               Add Expense
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         </div>
       </div>
 
-      {/* Metrics Cards */}
+      {/* Alert for overdue invoices */}
+      {overdueInvoices.length > 0 && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <div>
+                <p className="font-medium text-red-900">
+                  {overdueInvoices.length} overdue invoice{overdueInvoices.length > 1 ? 's' : ''}
+                </p>
+                <p className="text-sm text-red-700">
+                  Total amount: {formatCurrency(
+                    overdueInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+                    currency
+                  )}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
-            <TrendingUp className="h-4 w-4 text-success" />
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.totalEarnings)}</div>
+            <div className="text-2xl font-bold">
+              {formatCurrency(totalEarnings, currency)}
+            </div>
             <p className="text-xs text-muted-foreground">
-              From {metrics.totalInvoices} invoices
+              {paidInvoices} paid invoice{paidInvoices !== 1 ? 's' : ''}
             </p>
           </CardContent>
         </Card>
@@ -114,12 +112,14 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-            <TrendingDown className="h-4 w-4 text-destructive" />
+            <Receipt className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(metrics.totalExpenses)}</div>
+            <div className="text-2xl font-bold">
+              {formatCurrency(totalExpenses, currency)}
+            </div>
             <p className="text-xs text-muted-foreground">
-              {expenses.length} transactions
+              {expenses.length} expense{expenses.length !== 1 ? 's' : ''}
             </p>
           </CardContent>
         </Card>
@@ -127,85 +127,182 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Current Balance</CardTitle>
-            <div className={cn(
-              "h-4 w-4",
-              metrics.currentBalance >= 0 ? "text-success" : "text-destructive"
-            )}>
-              {metrics.currentBalance >= 0 ? <TrendingUp /> : <TrendingDown />}
-            </div>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className={cn(
-              "text-2xl font-bold",
-              metrics.currentBalance >= 0 ? "text-success" : "text-destructive"
-            )}>
-              {formatCurrency(metrics.currentBalance)}
+            <div className={`text-2xl font-bold ${currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {formatCurrency(currentBalance, currency)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {metrics.currentBalance >= 0 ? 'Profit' : 'Loss'}
+              Earnings minus expenses
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Clients</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.totalClients}</div>
+            <div className="text-2xl font-bold">{clients.length}</div>
             <p className="text-xs text-muted-foreground">
-              {metrics.pendingInvoices} pending invoices
+              Active client{clients.length !== 1 ? 's' : ''}
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Charts Section */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
+      {/* Invoice Status Overview */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
           <CardHeader>
-            <CardTitle>Revenue Overview</CardTitle>
-            <CardDescription>Monthly earnings and expenses trend</CardDescription>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Invoice Status
+            </CardTitle>
           </CardHeader>
-          <CardContent className="pl-2">
-            <RevenueChart invoices={invoices} expenses={expenses} />
+          <CardContent className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Pending</span>
+              <span className="font-medium">{pendingInvoices}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Paid</span>
+              <span className="font-medium text-green-600">{paidInvoices}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Drafts</span>
+              <span className="font-medium text-gray-600">{draftInvoices}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm">Overdue</span>
+              <span className="font-medium text-red-600">{overdueInvoices.length}</span>
+            </div>
           </CardContent>
         </Card>
 
-        <Card className="col-span-3">
+        {/* Recent Invoices */}
+        <Card>
           <CardHeader>
-            <CardTitle>Client Distribution</CardTitle>
-            <CardDescription>Revenue by client</CardDescription>
+            <CardTitle className="text-lg">Recent Invoices</CardTitle>
+            <CardDescription>Your latest invoice activity</CardDescription>
           </CardHeader>
           <CardContent>
-            <ClientDistributionChart invoices={invoices} clients={clients} />
+            <div className="space-y-3">
+              {recentInvoices.length > 0 ? (
+                recentInvoices.map((invoice) => (
+                  <div key={invoice.id} className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-sm">{invoice.client_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(invoice.date_issued)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-sm">
+                        {formatCurrency(invoice.amount, currency)}
+                      </p>
+                      <p className={`text-xs px-2 py-1 rounded-full ${
+                        invoice.status === 'Paid' ? 'bg-green-100 text-green-700' :
+                        invoice.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
+                        invoice.status === 'Overdue' ? 'bg-red-100 text-red-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {invoice.status}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No invoices yet</p>
+              )}
+            </div>
+            {recentInvoices.length > 0 && (
+              <Button variant="outline" className="w-full mt-4" asChild>
+                <Link href="/invoices">View All Invoices</Link>
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent Expenses */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Recent Expenses</CardTitle>
+            <CardDescription>Your latest expense entries</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {recentExpenses.length > 0 ? (
+                recentExpenses.map((expense) => (
+                  <div key={expense.id} className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-sm">{expense.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(expense.date_incurred)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-sm text-red-600">
+                        -{formatCurrency(expense.amount, currency)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {expense.category_name || 'Uncategorized'}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No expenses yet</p>
+              )}
+            </div>
+            {recentExpenses.length > 0 && (
+              <Button variant="outline" className="w-full mt-4" asChild>
+                <Link href="/expenses">View All Expenses</Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Recent Activity Section */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Invoices</CardTitle>
-            <CardDescription>Your latest issued invoices</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RecentInvoices invoices={invoices.slice(0, 5)} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Expense Overview</CardTitle>
-            <CardDescription>Top expense categories</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ExpenseOverview expenses={expenses} />
-          </CardContent>
-        </Card>
-      </div>
+      {/* Quick Actions */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Actions</CardTitle>
+          <CardDescription>
+            Common tasks to help you manage your business
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Button variant="outline" className="h-auto p-4" asChild>
+              <Link href="/invoices/create" className="flex flex-col items-center gap-2">
+                <FileText className="h-6 w-6" />
+                <span>Create Invoice</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto p-4" asChild>
+              <Link href="/clients/create" className="flex flex-col items-center gap-2">
+                <Users className="h-6 w-6" />
+                <span>Add Client</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto p-4" asChild>
+              <Link href="/expenses/create" className="flex flex-col items-center gap-2">
+                <Receipt className="h-6 w-6" />
+                <span>Record Expense</span>
+              </Link>
+            </Button>
+            <Button variant="outline" className="h-auto p-4" asChild>
+              <Link href="/analytics" className="flex flex-col items-center gap-2">
+                <TrendingUp className="h-6 w-6" />
+                <span>View Analytics</span>
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
