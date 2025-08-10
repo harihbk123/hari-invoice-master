@@ -1,92 +1,93 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { signIn } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle } from 'lucide-react';
-import type { Database } from '@/types/supabase';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { DollarSign, Eye, EyeOff, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   
   const router = useRouter();
-  const supabase = createClientComponentClient<Database>();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirectTo') || '/dashboard';
+  const { toast } = useToast();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+    
+    if (!email || !password) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive",
       });
-
-      if (error) {
-        setError(error.message);
-        return;
-      }
-
-      if (data.user) {
-        router.push('/dashboard');
-        router.refresh();
-      }
-    } catch (err) {
-      setError('An unexpected error occurred');
-    } finally {
-      setIsLoading(false);
+      return;
     }
-  };
 
-  const handleDemoLogin = async () => {
     setIsLoading(true);
-    setError(null);
 
     try {
-      // Demo credentials - for development/testing
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: 'demo@hariprasadss.com',
-        password: 'MyPage@8013',
-      });
-
+      const { error } = await signIn(email, password);
+      
       if (error) {
-        setError('Demo login failed. Please check if demo account exists.');
+        toast({
+          title: "Authentication Error",
+          description: error.message,
+          variant: "destructive",
+        });
         return;
       }
 
-      if (data.user) {
-        router.push('/dashboard');
-        router.refresh();
-      }
-    } catch (err) {
-      setError('An unexpected error occurred');
+      toast({
+        title: "Welcome back!",
+        description: "Successfully signed in to your account.",
+      });
+
+      router.push(redirectTo);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-500 to-teal-700 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Invoice Manager</CardTitle>
-          <CardDescription className="text-center">
+        <CardHeader className="text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <DollarSign className="h-8 w-8 text-primary" />
+            <div>
+              <CardTitle className="text-2xl">Invoice Manager</CardTitle>
+              <CardDescription className="text-sm text-muted-foreground">
+                Hariprasad Sivakumar
+              </CardDescription>
+            </div>
+          </div>
+          <CardDescription>
             Sign in to access your invoices and manage your business
           </CardDescription>
         </CardHeader>
+        
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <label htmlFor="email" className="text-sm font-medium">
+                Email
+              </label>
               <Input
                 id="email"
                 type="email"
@@ -97,31 +98,39 @@ export default function LoginPage() {
                 required
               />
             </div>
+            
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-                required
-              />
+              <label htmlFor="password" className="text-sm font-medium">
+                Password
+              </label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={isLoading}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
             
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
+            <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -132,29 +141,31 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
-        </CardContent>
-        <CardFooter className="flex flex-col space-y-2">
-          <div className="relative w-full">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">Or</span>
-            </div>
+          
+          <div className="mt-6 text-center text-sm">
+            <span className="text-muted-foreground">Don't have an account? </span>
+            <Link 
+              href="/auth/signup" 
+              className="text-primary hover:underline font-medium"
+            >
+              Sign up
+            </Link>
           </div>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={handleDemoLogin}
-            disabled={isLoading}
-          >
-            Continue with Demo Account
-          </Button>
-          <p className="text-center text-sm text-muted-foreground">
-            © 2025 Hariprasad Sivakumar. All rights reserved.
-          </p>
-        </CardFooter>
+          
+          <div className="mt-4 text-center">
+            <Link 
+              href="/auth/reset-password" 
+              className="text-sm text-muted-foreground hover:text-primary hover:underline"
+            >
+              Forgot your password?
+            </Link>
+          </div>
+        </CardContent>
       </Card>
+      
+      <div className="absolute bottom-4 left-4 text-xs text-muted-foreground">
+        © 2025 Hariprasad Sivakumar. All rights reserved.
+      </div>
     </div>
   );
 }
