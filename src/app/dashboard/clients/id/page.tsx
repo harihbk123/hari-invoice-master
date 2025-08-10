@@ -8,16 +8,17 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { useClientStore } from '@/lib/store';
 import { getClient, getClientInvoices } from '@/lib/supabase/queries';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { InvoiceStatusBadge } from '@/features/invoices/components/invoice-status-badge';
-import { ClientForm } from '@/features/clients/components/client-form';
 import { 
   ArrowLeft, Edit, Trash2, Mail, Phone, Building2, 
-  MapPin, CreditCard, FileText, DollarSign, Calendar 
+  MapPin, CreditCard, FileText, DollarSign, Calendar, Plus 
 } from 'lucide-react';
+import Link from 'next/link';
 
 export default function ClientDetailsPage() {
   const params = useParams();
@@ -25,7 +26,6 @@ export default function ClientDetailsPage() {
   const { toast } = useToast();
   const clientId = params.id as string;
   const { deleteClient } = useClientStore();
-  const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const { data: client, isLoading, error, refetch } = useQuery({
@@ -34,7 +34,7 @@ export default function ClientDetailsPage() {
     enabled: !!clientId,
   });
 
-  const { data: invoices = [] } = useQuery({
+  const { data: invoices = [], isLoading: isLoadingInvoices } = useQuery({
     queryKey: ['client-invoices', clientId],
     queryFn: () => getClientInvoices(clientId),
     enabled: !!clientId,
@@ -52,7 +52,7 @@ export default function ClientDetailsPage() {
         title: 'Client Deleted',
         description: 'Client has been deleted successfully',
       });
-      router.push('/clients');
+      router.push('/dashboard/clients');
     } catch (error) {
       console.error('Error deleting client:', error);
       toast({
@@ -68,7 +68,14 @@ export default function ClientDetailsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-muted-foreground">Loading client...</div>
+        <div className="animate-pulse space-y-4 w-full max-w-4xl">
+          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="h-40 bg-gray-200 rounded"></div>
+            <div className="h-40 bg-gray-200 rounded"></div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -76,8 +83,11 @@ export default function ClientDetailsPage() {
   if (error || !client) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <div className="text-destructive">Client not found</div>
-        <Button onClick={() => router.push('/clients')} variant="outline">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold text-destructive mb-2">Client Not Found</h2>
+          <p className="text-muted-foreground">The client you're looking for doesn't exist or has been deleted.</p>
+        </div>
+        <Button onClick={() => router.push('/dashboard/clients')} variant="outline">
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Clients
         </Button>
@@ -85,253 +95,265 @@ export default function ClientDetailsPage() {
     );
   }
 
-  const totalRevenue = invoices
-    .filter(inv => inv.status === 'Paid')
-    .reduce((sum, inv) => sum + inv.amount, 0);
-
-  const pendingAmount = invoices
-    .filter(inv => inv.status === 'Pending' || inv.status === 'Overdue')
-    .reduce((sum, inv) => sum + inv.amount, 0);
+  // Calculate client statistics
+  const totalInvoices = invoices.length;
+  const totalAmount = invoices.reduce((sum, invoice) => sum + invoice.total, 0);
+  const paidAmount = invoices.filter(inv => inv.status === 'Paid').reduce((sum, invoice) => sum + invoice.total, 0);
+  const pendingAmount = invoices.filter(inv => inv.status === 'Pending').reduce((sum, invoice) => sum + invoice.total, 0);
+  const overdueInvoices = invoices.filter(inv => 
+    inv.status === 'Pending' && new Date(inv.due_date) < new Date()
+  ).length;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <Button
-            onClick={() => router.push('/clients')}
-            variant="ghost"
-            size="sm"
-            className="mb-2"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Clients
-          </Button>
-          <h1 className="text-3xl font-bold">{client.name}</h1>
-          {client.company && (
-            <p className="text-muted-foreground">{client.company}</p>
-          )}
-        </div>
+      <div>
+        <Button
+          onClick={() => router.push('/dashboard/clients')}
+          variant="ghost"
+          size="sm"
+          className="mb-4"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Clients
+        </Button>
         
-        <div className="flex gap-2">
-          <Button
-            onClick={() => setIsEditing(!isEditing)}
-            variant="outline"
-            size="sm"
-          >
-            <Edit className="mr-2 h-4 w-4" />
-            {isEditing ? 'Cancel Edit' : 'Edit'}
-          </Button>
-          <Button
-            onClick={handleDelete}
-            variant="destructive"
-            size="sm"
-            disabled={isDeleting}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
-          </Button>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Building2 className="h-6 w-6 text-blue-600" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{client.name}</h1>
+              <p className="text-muted-foreground">{client.email}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => router.push(`/dashboard/clients/${clientId}/edit`)}
+              variant="outline"
+              size="sm"
+            >
+              <Edit className="mr-2 h-4 w-4" />
+              Edit
+            </Button>
+            <Button
+              onClick={handleDelete}
+              variant="destructive"
+              size="sm"
+              disabled={isDeleting}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete
+            </Button>
+          </div>
         </div>
       </div>
 
-      {isEditing ? (
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Edit Client Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ClientForm 
-              client={client}
-              onSuccess={() => {
-                setIsEditing(false);
-                refetch();
-                toast({
-                  title: 'Client Updated',
-                  description: 'Client information has been updated successfully',
-                });
-              }}
-            />
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-600" />
+              <div>
+                <p className="text-sm font-medium">Total Invoices</p>
+                <p className="text-2xl font-bold">{totalInvoices}</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
-      ) : (
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="invoices">Invoices</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-4">
-            {/* Client Stats */}
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Total Invoices</p>
-                  </div>
-                  <p className="text-2xl font-bold">{invoices.length}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Total Revenue</p>
-                  </div>
-                  <p className="text-2xl font-bold">{formatCurrency(totalRevenue)}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Pending Amount</p>
-                  </div>
-                  <p className="text-2xl font-bold">{formatCurrency(pendingAmount)}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Payment Terms</p>
-                  </div>
-                  <p className="text-2xl font-bold">{client.payment_terms || 'Net 30'}</p>
-                </CardContent>
-              </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-green-600" />
+              <div>
+                <p className="text-sm font-medium">Total Billed</p>
+                <p className="text-2xl font-bold">{formatCurrency(totalAmount)}</p>
+              </div>
             </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-green-600" />
+              <div>
+                <p className="text-sm font-medium">Paid Amount</p>
+                <p className="text-2xl font-bold">{formatCurrency(paidAmount)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-orange-600" />
+              <div>
+                <p className="text-sm font-medium">Overdue</p>
+                <p className="text-2xl font-bold">{overdueInvoices}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
+      {/* Tabs */}
+      <Tabs defaultValue="details" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="invoices">Invoices ({totalInvoices})</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="details" className="space-y-4">
+          <div className="grid gap-6 md:grid-cols-2">
             {/* Contact Information */}
             <Card>
               <CardHeader>
-                <CardTitle>Contact Information</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  Contact Information
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {client.email && (
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Email</p>
-                      <a href={`mailto:${client.email}`} className="text-primary hover:underline">
-                        {client.email}
-                      </a>
-                    </div>
+                <div className="flex items-center gap-3">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Email</p>
+                    <p className="text-sm text-muted-foreground">{client.email || 'Not provided'}</p>
                   </div>
-                )}
+                </div>
                 
-                {client.phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Phone</p>
-                      <a href={`tel:${client.phone}`} className="text-primary hover:underline">
-                        {client.phone}
-                      </a>
-                    </div>
+                <div className="flex items-center gap-3">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Phone</p>
+                    <p className="text-sm text-muted-foreground">{client.phone || 'Not provided'}</p>
                   </div>
-                )}
-
-                {client.company && (
-                  <div className="flex items-center gap-3">
-                    <Building2 className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Company</p>
-                      <p>{client.company}</p>
-                    </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Company</p>
+                    <p className="text-sm text-muted-foreground">{client.company || 'Not provided'}</p>
                   </div>
-                )}
-
-                {client.address && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="h-4 w-4 text-muted-foreground mt-1" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Address</p>
-                      <p className="whitespace-pre-line">{client.address}</p>
-                    </div>
-                  </div>
-                )}
-
-                {client.contact_name && (
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Contact Person</p>
-                      <p>{client.contact_name}</p>
-                    </div>
-                  </div>
-                )}
+                </div>
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="invoices" className="space-y-4">
+            {/* Address Information */}
             <Card>
               <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Invoices</CardTitle>
-                  <Button 
-                    size="sm"
-                    onClick={() => router.push(`/invoices/new?client=${clientId}`)}
-                  >
-                    Create Invoice
-                  </Button>
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5" />
+                  Address
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                {invoices.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No invoices yet</p>
-                    <Button 
-                      className="mt-4"
-                      onClick={() => router.push(`/invoices/new?client=${clientId}`)}
-                    >
-                      Create First Invoice
-                    </Button>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Invoice #</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Due Date</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {invoices.map((invoice) => (
-                        <TableRow key={invoice.id}>
-                          <TableCell className="font-medium">
-                            {invoice.invoice_number}
-                          </TableCell>
-                          <TableCell>{formatDate(invoice.date_issued)}</TableCell>
-                          <TableCell>{formatDate(invoice.due_date)}</TableCell>
-                          <TableCell>{formatCurrency(invoice.amount)}</TableCell>
-                          <TableCell>
-                            <InvoiceStatusBadge status={invoice.status} />
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => router.push(`/invoices/${invoice.id}`)}
-                            >
-                              View
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
+                <div className="space-y-2">
+                  {client.address ? (
+                    <div className="text-sm">
+                      <p>{client.address}</p>
+                      {client.city && <p>{client.city}</p>}
+                      {client.state && <p>{client.state}</p>}
+                      {client.zip && <p>{client.zip}</p>}
+                      {client.country && <p>{client.country}</p>}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No address provided</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
-      )}
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="invoices" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Client Invoices</h3>
+            <Button asChild size="sm">
+              <Link href={`/dashboard/invoices/create?client=${clientId}`}>
+                <Plus className="mr-2 h-4 w-4" />
+                New Invoice
+              </Link>
+            </Button>
+          </div>
+          
+          {isLoadingInvoices ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-muted-foreground">Loading invoices...</div>
+            </div>
+          ) : invoices.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Invoices Yet</h3>
+                <p className="text-muted-foreground mb-4">This client doesn't have any invoices yet.</p>
+                <Button asChild>
+                  <Link href={`/dashboard/invoices/create?client=${clientId}`}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create First Invoice
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invoices.map((invoice) => (
+                    <TableRow key={invoice.id}>
+                      <TableCell className="font-medium">
+                        <Link 
+                          href={`/dashboard/invoices/${invoice.id}`}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          {invoice.invoice_number}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{formatDate(invoice.issue_date)}</TableCell>
+                      <TableCell>{formatDate(invoice.due_date)}</TableCell>
+                      <TableCell>{formatCurrency(invoice.total)}</TableCell>
+                      <TableCell>
+                        <InvoiceStatusBadge status={invoice.status} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/dashboard/invoices/${invoice.id}`}>
+                              View
+                            </Link>
+                          </Button>
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/dashboard/invoices/${invoice.id}/edit`}>
+                              Edit
+                            </Link>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
