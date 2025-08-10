@@ -1,279 +1,262 @@
 import { create } from 'zustand'
-import { devtools, persist } from 'zustand/middleware'
-import type { 
-  Client, 
-  Invoice, 
-  Expense, 
-  ExpenseCategory, 
-  Settings,
-  BalanceSummary,
-  DateRange,
-  PaymentMethod 
-} from '@/types'
+import { dbHelpers } from '@/lib/supabase'
+import type { Database } from '@/types/supabase'
 
-interface AppState {
-  // User & Settings
-  user: any | null
-  settings: Settings | null
-  
+type Client = Database['public']['Tables']['clients']['Row']
+type Invoice = Database['public']['Tables']['invoices']['Row']
+type Expense = Database['public']['Tables']['expenses']['Row']
+type ExpenseCategory = Database['public']['Tables']['expense_categories']['Row']
+type Settings = Database['public']['Tables']['settings']['Row']
+type BalanceSummary = Database['public']['Tables']['balance_summary']['Row']
+
+interface User {
+  id: string
+  email: string
+  name: string
+}
+
+interface InvoiceItem {
+  description: string
+  quantity: number
+  rate: number
+  amount: number
+}
+
+interface StoreState {
+  // User
+  user: User | null
+  setUser: (user: User | null) => void
+
   // Data
   clients: Client[]
   invoices: Invoice[]
   expenses: Expense[]
   expenseCategories: ExpenseCategory[]
+  settings: Settings | null
   balanceSummary: BalanceSummary | null
-  
-  // UI State
-  isLoading: boolean
-  error: string | null
-  sidebarOpen: boolean
-  
-  // Selected Items
-  selectedInvoiceId: string | null
-  selectedClientId: string | null
-  selectedExpenseId: string | null
-  
-  // Filters
-  invoiceFilter: Invoice['status'] | 'all'
-  expenseFilter: {
-    category: string | 'all'
-    dateRange: DateRange
-    paymentMethod: PaymentMethod | 'all'
-    businessOnly: boolean
-  }
-}
 
-interface AppActions {
-  // User Actions
-  setUser: (user: any) => void
-  setSettings: (settings: Settings) => void
-  logout: () => void
+  // Loading states
+  isLoading: boolean
+  isLoadingClients: boolean
+  isLoadingInvoices: boolean
+  isLoadingExpenses: boolean
+
+  // Actions
+  setLoading: (loading: boolean) => void
+  loadInitialData: () => Promise<void>
   
-  // Data Actions
+  // Client actions
   setClients: (clients: Client[]) => void
   addClient: (client: Client) => void
-  updateClient: (id: string, client: Partial<Client>) => void
-  deleteClient: (id: string) => void
+  updateClient: (id: string, updates: Partial<Client>) => void
+  removeClient: (id: string) => void
   
+  // Invoice actions
   setInvoices: (invoices: Invoice[]) => void
   addInvoice: (invoice: Invoice) => void
-  updateInvoice: (id: string, invoice: Partial<Invoice>) => void
-  deleteInvoice: (id: string) => void
+  updateInvoice: (id: string, updates: Partial<Invoice>) => void
+  removeInvoice: (id: string) => void
   
+  // Expense actions
   setExpenses: (expenses: Expense[]) => void
   addExpense: (expense: Expense) => void
-  updateExpense: (id: string, expense: Partial<Expense>) => void
-  deleteExpense: (id: string) => void
+  updateExpense: (id: string, updates: Partial<Expense>) => void
+  removeExpense: (id: string) => void
   
-  setExpenseCategories: (categories: ExpenseCategory[]) => void
+  // Settings actions
+  setSettings: (settings: Settings) => void
+  updateSettings: (updates: Partial<Settings>) => void
+  
+  // Balance actions
   setBalanceSummary: (summary: BalanceSummary) => void
+  updateBalanceSummary: (updates: Partial<BalanceSummary>) => void
   
-  // UI Actions
-  setLoading: (loading: boolean) => void
-  setError: (error: string | null) => void
-  toggleSidebar: () => void
-  
-  // Selection Actions
-  selectInvoice: (id: string | null) => void
-  selectClient: (id: string | null) => void
-  selectExpense: (id: string | null) => void
-  
-  // Filter Actions
-  setInvoiceFilter: (filter: Invoice['status'] | 'all') => void
-  setExpenseFilter: (filter: Partial<AppState['expenseFilter']>) => void
-  resetFilters: () => void
-  
-  // Computed Values
-  getClientById: (id: string) => Client | undefined
-  getInvoiceById: (id: string) => Invoice | undefined
-  getExpenseById: (id: string) => Expense | undefined
-  getFilteredInvoices: () => Invoice[]
-  getFilteredExpenses: () => Expense[]
+  // Computed values
   getTotalEarnings: () => number
   getTotalExpenses: () => number
   getCurrentBalance: () => number
+  getRecentInvoices: (limit?: number) => Invoice[]
+  getRecentExpenses: (limit?: number) => Expense[]
+  getOverdueInvoices: () => Invoice[]
+  
+  // Reset store
+  reset: () => void
 }
 
-type AppStore = AppState & AppActions
-
-const initialState: AppState = {
+export const useStore = create<StoreState>((set, get) => ({
+  // Initial state
   user: null,
-  settings: null,
   clients: [],
   invoices: [],
   expenses: [],
   expenseCategories: [],
+  settings: null,
   balanceSummary: null,
   isLoading: false,
-  error: null,
-  sidebarOpen: true,
-  selectedInvoiceId: null,
-  selectedClientId: null,
-  selectedExpenseId: null,
-  invoiceFilter: 'all',
-  expenseFilter: {
-    category: 'all',
-    dateRange: { from: undefined, to: undefined },
-    paymentMethod: 'all',
-    businessOnly: false,
-  },
-}
+  isLoadingClients: false,
+  isLoadingInvoices: false,
+  isLoadingExpenses: false,
 
-export const useStore = create<AppStore>()(
-  devtools(
-    persist(
-      (set, get) => ({
-        ...initialState,
+  // Basic setters
+  setUser: (user) => set({ user }),
+  setLoading: (isLoading) => set({ isLoading }),
+  setClients: (clients) => set({ clients }),
+  setInvoices: (invoices) => set({ invoices }),
+  setExpenses: (expenses) => set({ expenses }),
+  setSettings: (settings) => set({ settings }),
+  setBalanceSummary: (balanceSummary) => set({ balanceSummary }),
 
-        // User Actions
-        setUser: (user) => set({ user }),
-        setSettings: (settings) => set({ settings }),
-        logout: () => set(initialState),
+  // Load initial data
+  loadInitialData: async () => {
+    set({ isLoading: true })
+    
+    try {
+      // Load all data in parallel
+      const [
+        clientsResult,
+        invoicesResult,
+        expensesResult,
+        categoriesResult,
+        balanceResult
+      ] = await Promise.all([
+        dbHelpers.getClients(),
+        dbHelpers.getInvoices(),
+        dbHelpers.getExpenses(),
+        dbHelpers.getExpenseCategories(),
+        dbHelpers.getBalanceSummary()
+      ])
 
-        // Data Actions - Clients
-        setClients: (clients) => set({ clients }),
-        addClient: (client) => set((state) => ({ 
-          clients: [...state.clients, client] 
-        })),
-        updateClient: (id, updates) => set((state) => ({
-          clients: state.clients.map((c) => 
-            c.id === id ? { ...c, ...updates } : c
-          ),
-        })),
-        deleteClient: (id) => set((state) => ({
-          clients: state.clients.filter((c) => c.id !== id),
-        })),
+      if (clientsResult.data) set({ clients: clientsResult.data })
+      if (invoicesResult.data) set({ invoices: invoicesResult.data })
+      if (expensesResult.data) set({ expenses: expensesResult.data })
+      if (categoriesResult.data) set({ expenseCategories: categoriesResult.data })
+      if (balanceResult.data) set({ balanceSummary: balanceResult.data })
 
-        // Data Actions - Invoices
-        setInvoices: (invoices) => set({ invoices }),
-        addInvoice: (invoice) => set((state) => ({ 
-          invoices: [...state.invoices, invoice] 
-        })),
-        updateInvoice: (id, updates) => set((state) => ({
-          invoices: state.invoices.map((i) => 
-            i.id === id ? { ...i, ...updates } : i
-          ),
-        })),
-        deleteInvoice: (id) => set((state) => ({
-          invoices: state.invoices.filter((i) => i.id !== id),
-        })),
-
-        // Data Actions - Expenses
-        setExpenses: (expenses) => set({ expenses }),
-        addExpense: (expense) => set((state) => ({ 
-          expenses: [...state.expenses, expense] 
-        })),
-        updateExpense: (id, updates) => set((state) => ({
-          expenses: state.expenses.map((e) => 
-            e.id === id ? { ...e, ...updates } : e
-          ),
-        })),
-        deleteExpense: (id) => set((state) => ({
-          expenses: state.expenses.filter((e) => e.id !== id),
-        })),
-
-        setExpenseCategories: (expenseCategories) => set({ expenseCategories }),
-        setBalanceSummary: (balanceSummary) => set({ balanceSummary }),
-
-        // UI Actions
-        setLoading: (isLoading) => set({ isLoading }),
-        setError: (error) => set({ error }),
-        toggleSidebar: () => set((state) => ({ 
-          sidebarOpen: !state.sidebarOpen 
-        })),
-
-        // Selection Actions
-        selectInvoice: (selectedInvoiceId) => set({ selectedInvoiceId }),
-        selectClient: (selectedClientId) => set({ selectedClientId }),
-        selectExpense: (selectedExpenseId) => set({ selectedExpenseId }),
-
-        // Filter Actions
-        setInvoiceFilter: (invoiceFilter) => set({ invoiceFilter }),
-        setExpenseFilter: (filter) => set((state) => ({
-          expenseFilter: { ...state.expenseFilter, ...filter },
-        })),
-        resetFilters: () => set({
-          invoiceFilter: 'all',
-          expenseFilter: initialState.expenseFilter,
-        }),
-
-        // Computed Values
-        getClientById: (id) => {
-          return get().clients.find((c) => c.id === id)
-        },
-        
-        getInvoiceById: (id) => {
-          return get().invoices.find((i) => i.id === id)
-        },
-        
-        getExpenseById: (id) => {
-          return get().expenses.find((e) => e.id === id)
-        },
-        
-        getFilteredInvoices: () => {
-          const { invoices, invoiceFilter } = get()
-          if (invoiceFilter === 'all') return invoices
-          return invoices.filter((i) => i.status === invoiceFilter)
-        },
-        
-        getFilteredExpenses: () => {
-          const { expenses, expenseFilter } = get()
-          let filtered = [...expenses]
-          
-          if (expenseFilter.category !== 'all') {
-            filtered = filtered.filter((e) => e.category_id === expenseFilter.category)
-          }
-          
-          if (expenseFilter.paymentMethod !== 'all') {
-            filtered = filtered.filter((e) => e.payment_method === expenseFilter.paymentMethod)
-          }
-          
-          if (expenseFilter.businessOnly) {
-            filtered = filtered.filter((e) => e.is_business_expense)
-          }
-          
-          if (expenseFilter.dateRange.from && expenseFilter.dateRange.to) {
-            filtered = filtered.filter((e) => {
-              const date = new Date(e.date_incurred)
-              return date >= expenseFilter.dateRange.from! && date <= expenseFilter.dateRange.to!
-            })
-          }
-          
-          return filtered
-        },
-        
-        getTotalEarnings: () => {
-          return get().invoices
-            .filter((i) => i.status === 'Paid')
-            .reduce((sum, i) => sum + i.amount, 0)
-        },
-        
-        getTotalExpenses: () => {
-          return get().expenses.reduce((sum, e) => sum + e.amount, 0)
-        },
-        
-        getCurrentBalance: () => {
-          const earnings = get().getTotalEarnings()
-          const expenses = get().getTotalExpenses()
-          return earnings - expenses
-        },
-      }),
-      {
-        name: 'invoice-manager-store',
-        partialize: (state) => ({
-          user: state.user,
-          settings: state.settings,
-          sidebarOpen: state.sidebarOpen,
-        }),
+      // Load user settings if user exists
+      const { user } = get()
+      if (user) {
+        const settingsResult = await dbHelpers.getSettings(user.id)
+        if (settingsResult.data) {
+          set({ settings: settingsResult.data })
+        }
       }
-    )
-  )
-)
+    } catch (error) {
+      console.error('Error loading initial data:', error)
+    } finally {
+      set({ isLoading: false })
+    }
+  },
 
-// Selectors for common use cases
-export const useUser = () => useStore((state) => state.user)
-export const useSettings = () => useStore((state) => state.settings)
-export const useClients = () => useStore((state) => state.clients)
-export const useInvoices = () => useStore((state) => state.invoices)
-export const useExpenses = () => useStore((state) => state.expenses)
-export const useIsLoading = () => useStore((state) => state.isLoading)
+  // Client actions
+  addClient: (client) => set((state) => ({
+    clients: [client, ...state.clients]
+  })),
+
+  updateClient: (id, updates) => set((state) => ({
+    clients: state.clients.map(client => 
+      client.id === id ? { ...client, ...updates } : client
+    )
+  })),
+
+  removeClient: (id) => set((state) => ({
+    clients: state.clients.filter(client => client.id !== id)
+  })),
+
+  // Invoice actions
+  addInvoice: (invoice) => set((state) => ({
+    invoices: [invoice, ...state.invoices]
+  })),
+
+  updateInvoice: (id, updates) => set((state) => ({
+    invoices: state.invoices.map(invoice => 
+      invoice.id === id ? { ...invoice, ...updates } : invoice
+    )
+  })),
+
+  removeInvoice: (id) => set((state) => ({
+    invoices: state.invoices.filter(invoice => invoice.id !== id)
+  })),
+
+  // Expense actions
+  addExpense: (expense) => set((state) => ({
+    expenses: [expense, ...state.expenses]
+  })),
+
+  updateExpense: (id, updates) => set((state) => ({
+    expenses: state.expenses.map(expense => 
+      expense.id === id ? { ...expense, ...updates } : expense
+    )
+  })),
+
+  removeExpense: (id) => set((state) => ({
+    expenses: state.expenses.filter(expense => expense.id !== id)
+  })),
+
+  // Settings actions
+  updateSettings: (updates) => set((state) => ({
+    settings: state.settings ? { ...state.settings, ...updates } : null
+  })),
+
+  // Balance actions
+  updateBalanceSummary: (updates) => set((state) => ({
+    balanceSummary: state.balanceSummary ? { ...state.balanceSummary, ...updates } : null
+  })),
+
+  // Computed values
+  getTotalEarnings: () => {
+    const { invoices } = get()
+    return invoices
+      .filter(invoice => invoice.status === 'Paid')
+      .reduce((total, invoice) => total + invoice.amount, 0)
+  },
+
+  getTotalExpenses: () => {
+    const { expenses } = get()
+    return expenses.reduce((total, expense) => total + expense.amount, 0)
+  },
+
+  getCurrentBalance: () => {
+    const { getTotalEarnings, getTotalExpenses } = get()
+    return getTotalEarnings() - getTotalExpenses()
+  },
+
+  getRecentInvoices: (limit = 5) => {
+    const { invoices } = get()
+    return invoices
+      .slice()
+      .sort((a, b) => new Date(b.created_at!).getTime() - new Date(a.created_at!).getTime())
+      .slice(0, limit)
+  },
+
+  getRecentExpenses: (limit = 5) => {
+    const { expenses } = get()
+    return expenses
+      .slice()
+      .sort((a, b) => new Date(b.created_at!).getTime() - new Date(a.created_at!).getTime())
+      .slice(0, limit)
+  },
+
+  getOverdueInvoices: () => {
+    const { invoices } = get()
+    const today = new Date()
+    return invoices.filter(invoice => 
+      invoice.status === 'Pending' && 
+      new Date(invoice.due_date) < today
+    )
+  },
+
+  // Reset store
+  reset: () => set({
+    user: null,
+    clients: [],
+    invoices: [],
+    expenses: [],
+    expenseCategories: [],
+    settings: null,
+    balanceSummary: null,
+    isLoading: false,
+    isLoadingClients: false,
+    isLoadingInvoices: false,
+    isLoadingExpenses: false,
+  })
+}))
